@@ -29,8 +29,8 @@ def train_routing():
     # Tuned hyperparameters for routing efficiency
     agent = REINFORCEAgent(
         state_dim=10, 
-        action_dim=3, 
-        lr=3e-4, 
+        action_dim=65, 
+        lr=1e-3, 
         gamma=0.95, 
         hidden_dim=128
     )

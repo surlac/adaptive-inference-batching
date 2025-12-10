@@ -15,7 +15,6 @@ def ensure_output_dir():
     os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 def plot_benchmark_performance():
-    """Generates the Multi-GPU Performance Bar Chart."""
     print("Generating Multi-GPU Performance Bar Chart...")
     
     try:
@@ -32,9 +31,8 @@ def plot_benchmark_performance():
             ]
             print(f"  Loaded real benchmark results: Random={rewards[0]:.2f}, RR={rewards[1]:.2f}, SQ={rewards[2]:.2f}, RL={rewards[3]:.2f}")
     except FileNotFoundError:
-        print(f"  Warning: {BENCHMARK_FILE} not found, using placeholder values.")
-        scenarios = ['Random', 'Round-Robin', 'Shortest-Queue', 'RL (REINFORCE)']
-        rewards = [105.50, 203.23, 612.80, 910.52]
+        print(f"  Error: {BENCHMARK_FILE} not found. Run evaluation first.")
+        return
         
     plt.figure(figsize=(10, 6))
     bars = plt.bar(scenarios, rewards, color=COLORS)
@@ -65,12 +63,8 @@ def plot_learning_curve():
             rewards_curve = np.array(history)
             print(f"  Loaded real training history ({len(history)} episodes)")
     except FileNotFoundError:
-        print(f"  Warning: {HISTORY_FILE} not found, using simulated curve.")
-        # Simulated based on typical training behavior for visualization
-        episodes = np.arange(0, 500)
-        rewards_curve = 200 + (910 - 200) / (1 + np.exp(-0.02 * (episodes - 150)))
-        noise = np.random.normal(0, 20, size=len(episodes))
-        rewards_curve += noise
+        print(f"  Error: {HISTORY_FILE} not found. Run evaluation first.")
+        return
     
     # Smooth data for plotting
     window = 20
@@ -166,30 +160,96 @@ def plot_latency_throughput_tradeoff():
     """Generates a scatter plot showing the Tradeoff between Latency and Throughput."""
     print("Generating Tradeoff Plot...")
     
-    # Simulated data points for visualization purposes
-    rnd_lat = np.random.normal(250, 30, 50)
-    rnd_thr = np.random.normal(40, 5, 50)
+    TRACE_METRICS_FILE = "results/trace_metrics.json"
+    
+    try:
+        with open(TRACE_METRICS_FILE, "r") as f:
+            data = json.load(f)
+            
+        plt.figure(figsize=(8, 6))
+        
+        # Map agent names to styles
+        styles = {
+            "Random": {'color': '#95a5a6', 'marker': 'x', 'label': 'Random', 'linestyle': '--'},
+            "Static-8": {'color': '#c0392b', 'marker': 'D', 'label': 'Static-8 (1 GPU)', 'linestyle': '-'},
+            "Round-Robin": {'color': '#e74c3c', 'marker': 's', 'label': 'Round-Robin', 'linestyle': '-.'},
+            "Shortest-Queue": {'color': '#2980b9', 'marker': 'p', 'label': 'Shortest-Queue', 'linestyle': '-.'},
+            "RL (REINFORCE)": {'color': '#2ecc71', 'marker': 'o', 'label': 'RL (REINFORCE)', 'linestyle': '-'}
+        }
+        
+        for name, metrics in data.items():
+            if name in styles:
+                style = styles[name]
+                # Sort by throughput for cleaner line plots
+                lat = np.array(metrics['latency'])
+                thr = np.array(metrics['throughput'])
+                idx = np.argsort(thr)
+                
+                plt.plot(thr[idx], lat[idx], 
+                         color=style['color'], label=style['label'], 
+                         marker=style['marker'], linestyle=style.get('linestyle', '-'),
+                         linewidth=2, markersize=8, alpha=0.8)
+                
+                # Visualize Multi-GPU Mode with a halo
+                is_multi = np.array(metrics.get('is_multi_gpu', [False]*len(lat)))
+                if np.any(is_multi):
+                    multi_idx = np.where(is_multi)[0]
+                    plt.scatter(thr[idx][multi_idx], lat[idx][multi_idx], 
+                                s=200, facecolors='none', edgecolors=style['color'], 
+                                linewidth=1.5, alpha=0.6, label='Multi-GPU Mode' if name == "RL (REINFORCE)" else "")
 
-    rr_lat = np.random.normal(200, 20, 50)
-    rr_thr = np.random.normal(50, 5, 50)
-    
-    sq_lat = np.random.normal(120, 15, 50)
-    sq_thr = np.random.normal(65, 5, 50)
-    
-    rl_lat = np.random.normal(60, 10, 50)
-    rl_thr = np.random.normal(75, 5, 50)
-    
-    plt.figure(figsize=(8, 6))
-    plt.scatter(rnd_lat, rnd_thr, color='#95a5a6', label='Random', alpha=0.5, marker='x')
-    plt.scatter(rr_lat, rr_thr, color='#e74c3c', label='Round-Robin', alpha=0.7, marker='s')
-    plt.scatter(sq_lat, sq_thr, color='#f39c12', label='Shortest-Queue', alpha=0.7, marker='^')
-    plt.scatter(rl_lat, rl_thr, color='#2ecc71', label='RL (Routing)', alpha=0.8, marker='o')
-    
-    plt.xlabel('Average Latency (ms) [Lower is Better]', fontsize=12)
-    plt.ylabel('Throughput (req/s) [Higher is Better]', fontsize=12)
-    plt.title('Latency-Throughput Tradeoff (Multi-GPU)', fontsize=14)
-    plt.legend()
+                # Annotate RL agent's adaptive mode switching
+                if name == "RL (REINFORCE)":
+                    if np.any(is_multi):
+                        first_multi = np.where(is_multi)[0][0]
+                        if first_multi > 0:
+                            first_single = 0
+                            
+                            # Styling
+                            style_kwargs = dict(fontsize=9, color='#34495e', fontweight='bold')
+                            arrow_kwargs = dict(arrowstyle="->", color='#34495e', lw=0.8)
+
+                            # Annotate single GPU operating mode
+                            plt.annotate("Single GPU Mode", 
+                                         xy=(thr[idx][first_single], lat[idx][first_single]), 
+                                         xytext=(thr[idx][first_single]+3, lat[idx][first_single]+1.0),
+                                         arrowprops=arrow_kwargs,
+                                         ha='center', **style_kwargs)
+                            
+                            # Annotate multi-GPU mode transition
+                            plt.annotate("Multi-GPU Mode\n(Adaptive Switch)", 
+                                         xy=(thr[idx][first_multi], lat[idx][first_multi]), 
+                                         xytext=(thr[idx][first_multi]-1, lat[idx][first_multi]-0.8),
+                                         arrowprops=arrow_kwargs,
+                                         ha='center', **style_kwargs)
+
+                    # Annotate optimal operating point
+                    last_pt = -1
+                    plt.annotate("Optimal Tradeoff (Sweet Spot)\nStops before congestion.", 
+                                 xy=(thr[idx][last_pt], lat[idx][last_pt]), 
+                                 xytext=(thr[idx][last_pt]-2, lat[idx][last_pt]-0.7),
+                                 arrowprops=dict(arrowstyle="->", color='#27ae60', lw=1.5),
+                                 ha='center', fontsize=9, fontweight='bold', color='#27ae60',
+                                 bbox=dict(boxstyle="round,pad=0.3", fc="white", ec="#2ecc71", alpha=0.9))
+                
+        print("  Generated Tradeoff Curves.")
+        
+    except FileNotFoundError:
+        print(f"  Warning: {TRACE_METRICS_FILE} not found. Run evaluate_trace.py first.")
+        return
+
+    # Add SLA Line
+    plt.axhline(y=3.0, color='#e74c3c', linestyle=':', linewidth=2, label='SLA Limit (3.0s)')
+    plt.text(10, 3.1, "SLA Violation Zone", color='#e74c3c', fontsize=10, fontstyle='italic')
+
+    plt.xlabel("Throughput (req/s) [Higher is Better]", fontsize=12)
+    plt.ylabel("Avg Latency (ms) [Lower is Better]", fontsize=12)
+    plt.title("Latency-Throughput Tradeoff", fontsize=14)
     plt.grid(True, alpha=0.3)
+    
+    # Legend in bottom-right with adjusted size
+    plt.legend(loc='lower right', fontsize=10, framealpha=0.95, edgecolor='#bdc3c7')
+    
     plt.savefig(f"{OUTPUT_DIR}/tradeoff_plot.png", dpi=300)
     plt.close()
 
@@ -214,39 +274,39 @@ def plot_learning_curves_grid():
     """Generates a 2x2 grid of learning curves for different scenarios."""
     print("Generating Learning Curves Grid...")
     
+    SCENARIOS_FILE = "results/scenarios_history.json"
+    
     fig, axs = plt.subplots(2, 2, figsize=(12, 10))
-    episodes_sim = np.arange(500)
     
-    # Standard Scenario (Single GPU) - Simulated Baseline
-    # Simulates a stable but unimproving baseline (flat reward)
-    data_std = np.random.normal(254, 5, 500)
-    _plot_subplot(axs[0, 0], data_std, 'Standard Scenario (Single GPU)', 'gray', episodes_sim, ylabel='Reward', show_legend=True)
+    # Load Scenario Data
+    try:
+        with open(SCENARIOS_FILE, "r") as f:
+            scenarios_data = json.load(f)
+            
+        if "Standard" in scenarios_data:
+            curve = np.array(scenarios_data["Standard"])
+            _plot_subplot(axs[0, 0], curve, 'Standard Scenario (Single GPU)', 'gray', np.arange(len(curve)), ylabel='Reward', show_legend=True)
+            
+        if "Extreme Burst" in scenarios_data:
+            curve = np.array(scenarios_data["Extreme Burst"])
+            _plot_subplot(axs[0, 1], curve, 'Extreme Burst Scenario', 'orange', np.arange(len(curve)))
+            
+        if "Heterogeneous" in scenarios_data:
+            curve = np.array(scenarios_data["Heterogeneous"])
+            _plot_subplot(axs[1, 0], curve, 'Heterogeneous Scenario', 'blue', np.arange(len(curve)), ylabel='Reward', xlabel='Episode')
+            
+    except FileNotFoundError:
+        print(f"  Warning: {SCENARIOS_FILE} not found. Run evaluate_scenarios.py first.")
     
-    # Extreme Burst Scenario - Simulated Baseline
-    # Simulates high variance due to bursty arrivals
-    data_burst = np.random.normal(330, 50, 500)
-    _plot_subplot(axs[0, 1], data_burst, 'Extreme Burst Scenario', 'orange', episodes_sim)
-    
-    # Real-World Trace - Simulated Baseline
-    # Simulates performance on trace data
-    data_trace = np.random.normal(87, 2, 500)
-    _plot_subplot(axs[1, 0], data_trace, 'Real-World Trace', 'blue', episodes_sim, ylabel='Reward', xlabel='Episode')
-    
-    # Multi-GPU Routing - Real Data
+    # Multi-GPU Routing - Real Data (from Training History)
     try:
         with open(HISTORY_FILE, "r") as f:
             hist_data = json.load(f)
-            if not hist_data:
-                raise FileNotFoundError("Empty history file")
-            curve = np.array(hist_data)
-            episodes_grid = np.arange(len(curve))
-            
-            _plot_subplot(axs[1, 1], curve, 'Multi-GPU Routing (Real)', 'green', episodes_grid, xlabel='Episode')
-            
+            if hist_data:
+                curve = np.array(hist_data)
+                _plot_subplot(axs[1, 1], curve, 'Multi-GPU Routing (Real)', 'green', np.arange(len(curve)), xlabel='Episode')
     except FileNotFoundError:
-        # Fallback to simulated data if real history is missing
-        curve = 200 + (910 - 200) / (1 + np.exp(-0.02 * (episodes_sim - 150))) + np.random.normal(0, 20, 500)
-        _plot_subplot(axs[1, 1], curve, 'Multi-GPU Routing (Simulated)', 'green', episodes_sim, xlabel='Episode')
+        pass
     
     plt.tight_layout()
     plt.savefig(f"{OUTPUT_DIR}/learning_curves_grid.png", dpi=300)

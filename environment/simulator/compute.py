@@ -74,7 +74,7 @@ class ComputeCluster:
             return False
             
         # Create Batch
-        batch = Batch(batch_id=self.next_batch_id, requests=batch_requests)
+        batch = Batch(batch_id=self.next_batch_id, requests=batch_requests, gpu_id=gpu_id)
         self.next_batch_id += 1
         
         batch.start_time = start_time

@@ -1,5 +1,7 @@
 
 import numpy as np
+import json
+import os
 
 from environment.simulator import Simulator
 from agents.reinforce import REINFORCEAgent
@@ -22,25 +24,33 @@ def evaluate_ppo_scenarios():
         ("Adaptive", AdaptiveScenario())
     ]
     
+    results_history = {}
+    
     for name, scenario_obj in scenarios:
         # Setup Environment
         env = Simulator(seed=42)
         if scenario_obj:
             env = scenario_obj.apply(env)
             
-        # Train REINFORCE Agent (Fresh)
-        # REINFORCE might explore better than PPO in this specific landscape
+        # Train REINFORCE Agent
         agent = REINFORCEAgent(state_dim=9, action_dim=33, lr=0.0005)
+        
+        scenario_history = []
         
         # Train for 500 episodes to give it time to find the optimal policy
         for _ in range(500):
             state = env.reset()
+            episode_reward = 0
             for _ in range(1000):
                 action, log_prob, value = agent.get_action(state)
                 next_state, reward, done, _ = env.step(action)
                 agent.store_transition(state, action, reward, log_prob, value, done)
                 state = next_state
+                episode_reward += reward
             agent.update()
+            scenario_history.append(episode_reward)
+            
+        results_history[name] = scenario_history
             
         # Evaluate REINFORCE
         reinforce_returns = []
@@ -82,6 +92,12 @@ def evaluate_ppo_scenarios():
         imp = ((avg_reinforce - avg_static) / abs(avg_static)) * 100 if avg_static != 0 else 0
         
         print(f"{name:<25} | {avg_static:<10.2f} | {avg_reinforce:<10.2f} | {imp:<10.1f}%")
+
+    # Save history for plotting
+    os.makedirs("results", exist_ok=True)
+    with open("results/scenarios_history.json", "w") as f:
+        json.dump(results_history, f, indent=4)
+    print("Saved scenarios history to results/scenarios_history.json")
 
 if __name__ == "__main__":
     evaluate_ppo_scenarios()

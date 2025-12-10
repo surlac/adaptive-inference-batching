@@ -29,6 +29,7 @@ class Simulator:
         self.time_window_ms = time_window_ms
         self.max_wait_time_ms = max_wait_time_ms
         self.num_gpus = num_gpus
+        self.num_gpus = num_gpus
         self.seed = seed
         
         self.device_delay_params = device_delay_params or {
@@ -61,7 +62,7 @@ class Simulator:
             seed=seed
         )
         
-        # Initialize state via reset (DRY)
+        # Initialize state via reset
         self.reset()
         
     def reset(self) -> np.ndarray:
@@ -84,6 +85,8 @@ class Simulator:
         return self._get_state()
     
     def step(self, action: int) -> Tuple[np.ndarray, float, bool, dict]:
+        if self.num_gpus != 2:
+             pass
         self.current_time += self.time_window_ms / 1000.0
         
         # Update Compute Cluster (Process completions)
@@ -99,11 +102,18 @@ class Simulator:
         self.current_step += 1
         
         # Schedule compute actions
-        if action > 0:
+        # First unpack action to get batch_size and gpu_id
+        if isinstance(action, (tuple, list, np.ndarray)):
+            gpu_id = int(action[0])
+            batch_size = int(action[1])
+        else:
+            # Default to GPU 0 if only batch size provided
             if self.num_gpus == 1:
                 gpu_id = 0
-                batch_size = action
+                batch_size = int(action)
             else:
+                # RL Agent Action Mapping (Scalar -> GPU/Batch)
+                action = int(action)
                 if action == 0:
                     batch_size = 0
                     gpu_id = 0
@@ -112,8 +122,8 @@ class Simulator:
                     batch_size = (adjusted_action % self.max_batch_size) + 1
                     gpu_id = adjusted_action // self.max_batch_size
             
-            if batch_size > 0:
-                self.compute.schedule_batch(batch_size, gpu_id, self.queue, self.current_time)
+        if batch_size > 0:
+            self.compute.schedule_batch(batch_size, gpu_id, self.queue, self.current_time)
         
         # Calculate metrics and current reward
         self.metrics = self.tracker.update(
@@ -163,7 +173,10 @@ class Simulator:
             busy_time = max(0.0, self.compute.gpu_busy_until[i] - self.current_time)
             state.append(min(busy_time / 0.1, 1.0))
         
-        return np.array(state, dtype=np.float32)
+        state_arr = np.array(state, dtype=np.float32)
+        if len(state_arr) != 10 and self.num_gpus == 2:
+            pass
+        return state_arr
 
     def _process_timeouts(self) -> None:
         i = 0

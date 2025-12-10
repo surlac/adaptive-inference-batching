@@ -34,6 +34,7 @@ class Batch:
     requests: List[Request] = field(default_factory=list)
     start_time: Optional[float] = None
     end_time: Optional[float] = None
+    gpu_id: Optional[int] = None
     
     @property
     def size(self) -> int:

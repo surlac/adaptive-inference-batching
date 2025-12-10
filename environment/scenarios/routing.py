@@ -46,9 +46,13 @@ class RoutingScenario(Scenario):
     
     def _step_routing_impl(self, env_instance, action):
         # Action mapping: 0=Wait, 1=GPU0(Batch8), 2=GPU1(Batch8)
+        # Also supports standard action space (1-32 -> GPU0, 33-64 -> GPU1) for baselines
         real_action = 0
+        
         if action == 1: real_action = 8
         elif action == 2: real_action = 40
+        elif 1 <= action <= 32: real_action = 8   # Map any GPU0 batch size to fixed 8
+        elif 33 <= action <= 64: real_action = 40 # Map any GPU1 batch size to fixed 8
             
         next_state, _, done, metrics = env_instance._original_step(real_action)
         
